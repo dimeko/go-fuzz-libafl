@@ -1,0 +1,20 @@
+[package]
+name = "go_lib"
+edition = "2024"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+clap = { version = "4.5.18", features = ["derive", "string"] }
+env_logger = { version = "0.11.5" }
+libafl = { path = "../../thesis-papei/LibAFL/libafl" }
+libafl_bolts = { path = "../../thesis-papei/LibAFL/libafl_bolts" }
+libafl_qemu = { path = "../../thesis-papei/LibAFL/libafl_qemu", features = ["usermode", "x86_64"] }
+libafl_targets = { path = "../../thesis-papei/LibAFL/libafl_targets" }
+log = { version = "0.4.22", features = ["release_max_level_info"] }
+
+[build-dependencies]
+vergen = { version = "9.0.1", features = ["build", "cargo", "rustc", "si"] }
+vergen-git2 = "1.0.1"
