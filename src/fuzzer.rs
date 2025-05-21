@@ -1,7 +1,5 @@
-// use core::fmt::Debug;
-
 use core::time::Duration;
-use std::{env, fmt::Write, fs, io, path::PathBuf, process};
+use std::{env, fmt::Write, fs, io, path::PathBuf, ptr::NonNull, process};
 use clap::{builder::Str, Parser};
 // use std::{env, fmt::Write, fs::DirEntry, io, path::PathBuf, process};
 use env_logger::Builder;
@@ -9,63 +7,69 @@ use env_logger::Builder;
 // use core::time::Duration;
 // use std::{env, path::PathBuf, process};
 
+use libafl::{corpus::{InMemoryCorpus, OnDiskCorpus, InMemoryOnDiskCorpus}, feedbacks::MaxMapFeedback, observers::CanTrack, Fuzzer};
 // use libafl::state::HasExecutions;
-#[allow(unused_imports)]
+// #[allow(unused_imports)]
 use libafl::{
-    corpus::{Corpus, InMemoryCorpus},
+    corpus::{Corpus},
     events::{
-        launcher::Launcher, ClientDescription, EventConfig, LlmpRestartingEventManager, SendExiting,
+        SimpleEventManager, SimpleRestartingEventManager, launcher::Launcher, ClientDescription, LlmpRestartingEventManager,
     },
-    executors::ExitKind,
+    feedbacks::{
+        CrashFeedback,
+        TimeoutFeedback,
+        TimeFeedback
+    },
+    observers::{
+        HitcountsMapObserver,
+        ConstMapObserver,
+        VariableMapObserver,
+        TimeObserver
+    },
+    schedulers::{
+        powersched::PowerSchedule, IndexesLenTimeMinimizerScheduler, PowerQueueScheduler,
+    },
+    stages::{
+        calibrate::CalibrationStage, power::StdPowerMutationalStage, ShadowTracingStage,
+        StdMutationalStage,
+    },
+    feedback_or,
+    monitors::SimpleMonitor,
+    mutators::{havoc_mutations::havoc_mutations, tokens_mutations, scheduled::HavocScheduledMutator, token_mutations::I2SRandReplace},
+    executors::{ExitKind, ShadowExecutor, forkserver::SHM_CMPLOG_ENV_VAR},
     fuzzer::StdFuzzer,
     inputs::{BytesInput, HasTargetBytes},
-    monitors::MultiMonitor,
-    schedulers::QueueScheduler,
+    // schedulers::QueueScheduler,
     state::{HasCorpus, StdState},
     Error,
 };
 
+use libafl_bolts::AsSliceMut;
+// #[allow(unused_imports)]
 use libafl_bolts::{
+    current_time,
+    ownedref::OwnedMutSlice,
     core_affinity::Cores,
     os::unix_signals::Signal,
-    shmem::{ShMemProvider, StdShMemProvider},
+    shmem::{ShMem, ShMemProvider, StdShMemProvider, UnixShMemProvider},
     rands::StdRand,
-    tuples::tuple_list,
+    tuples::{tuple_list, Handled, Merge},
     AsSlice,
 };
 
 use libafl_qemu::{
-    elf::EasyElf,
-    modules::{drcov::DrCovModule, SnapshotModule},
-    ArchExtras, Emulator, GuestAddr, GuestReg, MmapPerms, Qemu, QemuExecutor, QemuExitReason,
-    QemuMappingsViewer, QemuRWError, QemuShutdownCause, Regs,
+    breakpoint::Breakpoint, elf::EasyElf, modules::{
+        cmplog::{CmpLogChildModule, CmpLogObserver},
+        edges::StdEdgeCoverageChildModule,
+        EmulatorModuleTuple
+    }, qemu, ArchExtras, Emulator, GuestAddr, GuestReg, MmapPerms, Qemu, QemuExecutor, QemuExitError, QemuExitReason, QemuForkExecutor, QemuMappingsViewer, QemuMemoryChunk, QemuRWError, QemuShutdownCause, Regs, TargetSignalHandling
     // StdEmulatorDriver,
 };
-// use libafl_targets::{edges_map_mut_ptr, EDGES_MAP_DEFAULT_SIZE, MAX_EDGES_FOUND};
-// pub type ClientState =
-//     StdState<InMemoryOnDiskCorpus<BytesInput>, BytesInput, StdRand, OnDiskCorpus<BytesInput>>;
 
-// fn get_emulator<C, ET, I, S>(
-//     args: Vec<String>,
-//     mut modules: ET,
-// ) -> Result<
-//     Emulator<C, StdCommandManager<S>, StdEmulatorDriver, ET, I, S, NopSnapshotManager>,
-//     QemuInitError,
-// >
-// where
-//     ET: EmulatorModuleTuple<I, S> + HasAddressFilterTuple,
-//     I: HasTargetBytes + Unpin,
-//     S: HasExecutions + Unpin,
-// {
-//     // Allow linux process address space addresses as feedback
-//     modules.allow_address_range_all(&LINUX_PROCESS_ADDRESS_RANGE);
+use libafl_targets::{edges_map_mut_ptr, CmpLogMap, CMPLOG_MAP_PTR, EDGES_MAP_DEFAULT_SIZE, EDGES_MAP_ALLOCATED_SIZE, MAX_EDGES_FOUND};
 
-//     Emulator::builder()
-//         .qemu_parameters(args)
-//         .modules(modules)
-//         .build()
-// }
-pub const MAX_INPUT_SIZE: usize = 1048576; // 1MB
+const MAX_INPUT_SIZE: usize = 1048576; // 1MB
+const MAP_SIZE: usize = 65536;
 
 #[derive(Default)]
 pub struct Version;
@@ -74,54 +78,14 @@ fn timeout_from_millis_str(time: &str) -> Result<Duration, Error> {
     Ok(Duration::from_millis(time.parse()?))
 }
 
-impl From<Version> for Str {
-    fn from(_: Version) -> Str {
-        let version = [
-            ("Architecture:", env!("CPU_TARGET")),
-            ("Build Timestamp:", env!("VERGEN_BUILD_TIMESTAMP")),
-            ("Describe:", env!("VERGEN_GIT_DESCRIBE")),
-            ("Commit SHA:", env!("VERGEN_GIT_SHA")),
-            ("Commit Date:", env!("VERGEN_RUSTC_COMMIT_DATE")),
-            ("Commit Branch:", env!("VERGEN_GIT_BRANCH")),
-            ("Rustc Version:", env!("VERGEN_RUSTC_SEMVER")),
-            ("Rustc Channel:", env!("VERGEN_RUSTC_CHANNEL")),
-            ("Rustc Host Triple:", env!("VERGEN_RUSTC_HOST_TRIPLE")),
-            ("Rustc Commit SHA:", env!("VERGEN_RUSTC_COMMIT_HASH")),
-            ("Cargo Target Triple", env!("VERGEN_CARGO_TARGET_TRIPLE")),
-        ]
-        .iter()
-        .fold(String::new(), |mut output, (k, v)| {
-            let _ = writeln!(output, "{k:25}: {v}");
-            output
-        });
-
-        format!("\n{version:}").into()
-    }
-}
-
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-#[command(
-    name = format!("qemu_coverage-{}",env!("CPU_TARGET")),
-    version = Version::default(),
-    about,
-    long_about = "Module for generating DrCov coverage data using QEMU instrumentation"
-)]
 pub struct FuzzerArgs {
     #[arg(long, help = "Coverage file")]
     coverage_path: PathBuf,
 
     #[arg(long, help = "Input directory")]
     input_dir: PathBuf,
-
-    #[arg(long, help = "Timeout in seconds", default_value = "5000", value_parser = timeout_from_millis_str)]
-    timeout: Duration,
-
-    #[arg(long = "port", help = "Broker port", default_value_t = 1337_u16)]
-    port: u16,
-
-    #[arg(long, help = "Cpu cores to use", default_value = "all", value_parser = Cores::from_cmdline)]
-    cores: Cores,
 
     #[clap(short, long, help = "Enable output from the fuzzer clients")]
     verbose: bool,
@@ -130,15 +94,14 @@ pub struct FuzzerArgs {
     args: Vec<String>,
 }
 
-pub fn fuzz() {
-    // #![allow(unused_mut)]
-    // #![allow(unused_variables)]
-    // #![allow(unreachable_code)]
-
+pub fn fuzz() -> Result<(), Error> {
+    #![allow(unused_mut)]
+    #![allow(unused_variables)]
+    #![allow(unreachable_code)]
     let mut builder = Builder::from_default_env();
 
     let mut log_level: log::LevelFilter = log::LevelFilter::Warn;
-    let cli_args = FuzzerArgs::parse();
+    let mut cli_args = FuzzerArgs::parse();
 
     if cli_args.verbose {
         log_level = log::LevelFilter::Debug;
@@ -147,272 +110,257 @@ pub fn fuzz() {
         .filter(None, log_level)
         .init();
 
-    let mut options = FuzzerArgs::parse();
-
-    // let timeout = Duration::from_secs(50);
-    // let broker_port = 1338;
-    // let cores = Cores::from_cmdline("1").unwrap();
-
-    // let corpus_dir = fs::read_dir("./corpus").unwrap();
-    
-    // let corpus_dirs = corpus_dir.collect::<Result<Vec<fs::DirEntry>, io::Error>>()
-    //     .expect("could not parse corpus dir");
-    let corpus_files = options
+    let corpus_files = cli_args
         .input_dir
         .read_dir()
         .expect("Failed to read corpus dir")
         .collect::<Result<Vec<fs::DirEntry>, io::Error>>()
         .expect("Failed to read dir entry");
-    // let objective_dir = PathBuf::from("./crashes");
-    
-    // let corpus_files: Vec<fs::DirEntry> = corpus_dirs.iter().map(|d| {
-    //     return d.read_dir()
-    //     .expect("Failed to read corpus dir")
-    //     .collect::<Result<Vec<fs::DirEntry>, io::Error>>()
-    //     .expect("Failed to read dir entry");
-    // }).collect().;
-    let num_files = corpus_files.len();
-    let num_cores = options.cores.ids.len();
-    let files_per_core = (num_files as f64 / num_cores as f64).ceil() as usize;
+    let in_dir = [PathBuf::from(cli_args.input_dir)];
 
     let program = env::args().next().unwrap();
     log::info!("Program: {program:}");
 
-    options.args.insert(0, program);
-    log::info!("ARGS: {:#?}", options.args);
+    cli_args.args.insert(0, program);
+    log::info!("ARGS: {:#?}", cli_args.args);
 
-    unsafe { env::remove_var("LD_LIBRARY_PATH") };
+    let mut shmem_provider = StdShMemProvider::new().unwrap();
 
-    let mut run_client = |state: Option<_>,
-        mut mgr: LlmpRestartingEventManager<_, _, _, _, _>,
-        client_description: ClientDescription| {
-            let mut cov_path = options.coverage_path.clone();
-            let core_id = client_description.core_id();
-    
-            let coverage_name = cov_path.file_stem().unwrap().to_str().unwrap();
-            let coverage_extension = cov_path.extension().unwrap_or_default().to_str().unwrap();
-            let core = core_id.0;
-            cov_path.set_file_name(format!("{coverage_name}-{core:03}.{coverage_extension}"));
-    
-            let emulator_modules = tuple_list!(
-                DrCovModule::builder().filename(cov_path.clone()).build(),
-                SnapshotModule::new(),
-            );
-    
-            let emulator = Emulator::empty()
-                .qemu_parameters(options.args.clone())
-                .modules(emulator_modules)
-                .build()
-                .expect("QEMU initialization failed");
-            let qemu = emulator.qemu();
-    
-            let mut elf_buffer = Vec::new();
-            let elf = EasyElf::from_file(qemu.binary_path(), &mut elf_buffer).unwrap();
-    
-            let test_one_input_ptr = elf
-                .resolve_symbol("LLVMFuzzerTestOneInput", qemu.load_addr())
-                .expect("Symbol LLVMFuzzerTestOneInput not found");
-            log::info!("LLVMFuzzerTestOneInput @ {test_one_input_ptr:#x}");
-    
-            qemu.entry_break(test_one_input_ptr);
-    
-            let mappings = QemuMappingsViewer::new(&qemu);
-            println!("{:#?}", mappings);
-    
-            let pc: GuestReg = qemu.read_reg(Regs::Pc).unwrap();
-            log::info!("Break at {pc:#x}");
-    
-            let ret_addr: GuestAddr = qemu.read_return_address().unwrap();
-            log::info!("Return address = {ret_addr:#x}");
-    
-            qemu.set_breakpoint(ret_addr);
-    
-            let input_addr = qemu
-                .map_private(0, MAX_INPUT_SIZE, MmapPerms::ReadWrite)
-                .unwrap();
-            log::info!("Placing input at {input_addr:#x}");
-    
-            let stack_ptr: GuestAddr = qemu.read_reg(Regs::Sp).unwrap();
-    
-            let reset = |qemu: Qemu, buf: &[u8], len: GuestReg| -> Result<(), QemuRWError> {
-                unsafe {
-                    log::info!("Input buf: {:?}", buf);
-                    qemu.write_mem(input_addr, buf)?;
-                    qemu.write_reg(Regs::Pc, test_one_input_ptr)?;
-                    qemu.write_reg(Regs::Sp, stack_ptr)?;
-                    qemu.write_return_address(ret_addr)?;
-                    qemu.write_function_argument(0, input_addr)?;
-                    qemu.write_function_argument(1, len)?;
-    
-                    match qemu.run() {
-                        Ok(QemuExitReason::Breakpoint(_)) => {}
-                        Ok(QemuExitReason::End(QemuShutdownCause::HostSignal(
-                            Signal::SigInterrupt,
-                        ))) => process::exit(0),
-                        _ => panic!("Unexpected QEMU exit."),
-                    }
-    
-                    Ok(())
-                }
-            };
-    
-            let mut harness =
-                |emulator: &mut Emulator<_, _, _, _, _, _, _>, _state: &mut _, input: &BytesInput| {
-                    let qemu = emulator.qemu();
-    
-                    let target = input.target_bytes();
-                    log::info!("Input target buf: {:?}", target);
-                    let mut buf = target.as_slice();
-                    let mut len = buf.len();
-                    if len > MAX_INPUT_SIZE {
-                        buf = &buf[0..MAX_INPUT_SIZE];
-                        len = MAX_INPUT_SIZE;
-                    }
-                    let len = len as GuestReg;
-                    reset(qemu, buf, len).unwrap();
-    
-                    ExitKind::Ok
-                };
-    
-            let core_id = client_description.core_id();
-            let core_idx = options
-                .cores
-                .position(core_id)
-                .expect("Failed to get core index");
-    
-            let files = corpus_files
-                .iter()
-                .skip(files_per_core * core_idx)
-                .take(files_per_core)
-                .map(|x| x.path())
-                .collect::<Vec<PathBuf>>();
-            // for v in files.iter() {
-            //     print!("de: {:?}", v);
-            // }
-            // process::exit(1);
-            if files.is_empty() {
-                log::error!("Empty corpus!");
+    let mut edges_shmem = shmem_provider.new_shmem(EDGES_MAP_DEFAULT_SIZE).unwrap();
+    let edges = edges_shmem.as_slice_mut();
+    let mut edges_observer = unsafe {
+        HitcountsMapObserver::new(ConstMapObserver::from_mut_ptr(
+            "edges",
+            NonNull::new(edges.as_mut_ptr())
+                .expect("map ptr is null.")
+                .cast::<[u8; EDGES_MAP_DEFAULT_SIZE]>(),
+        ))
+        .track_indices()
+    };
+    let emulator_modules = tuple_list!(
+        StdEdgeCoverageChildModule::builder()
+            .const_map_observer(edges_observer.as_mut())
+            .build()?,
+        CmpLogChildModule::default(),
+    );
 
-                mgr.send_exiting()?;
-                Err(Error::ShuttingDown)?
+    let emulator = Emulator::empty()
+        .qemu_parameters(cli_args.args)
+        .modules(emulator_modules)
+        .build()
+        .expect("QEMU init failed");
+
+    let qemu = emulator.qemu();
+    let mut elf_buffer = Vec::new();
+    let elf = EasyElf::from_file(qemu.binary_path(), &mut elf_buffer)?;
+
+    let test_one_input_ptr = elf
+        .resolve_symbol("LLVMFuzzerTestOneInput", qemu.load_addr())
+        .expect("Symbol LLVMFuzzerTestOneInput not found");
+    log::info!("LLVMFuzzerTestOneInput @ {test_one_input_ptr:#x}");
+
+    qemu.entry_break(test_one_input_ptr); // LLVMFuzzerTestOneInput
+    log::info!("Break at {:#x}", qemu.read_reg(Regs::Pc).unwrap());
+
+    let stack_ptr: u64 = qemu.read_reg(Regs::Sp).unwrap();
+    let ret_addr: GuestAddr = qemu.read_return_address().unwrap();
+    log::info!("Return address = {ret_addr:#x}");
+
+    log::info!("Stack pointer = {stack_ptr:#x}");
+    log::info!("Return address = {ret_addr:#x}");
+
+    // qemu.remove_breakpoint(test_one_input_ptr); // LLVMFuzzerTestOneInput
+    qemu.set_breakpoint(ret_addr); // LLVMFuzzerTestOneInput ret addr
+    let mappings = QemuMappingsViewer::new(&qemu);
+    println!("{:#?}", mappings);
+    let input_addr = qemu.map_private(0, 4096, MmapPerms::ReadWrite).unwrap();
+    log::info!("Placing input at {input_addr:#x}");
+
+    let mon = SimpleMonitor::new(|s| println!("{s}"));
+
+    let mut cmp_shmem = shmem_provider.uninit_on_shmem::<CmpLogMap>().unwrap();
+    let cmplog = cmp_shmem.as_slice_mut();
+    // The event manager handle the various events generated during the fuzzing loop
+    // such as the notification of the addition of a new item to the corpus
+    // let mut manager = SimpleEventManager::new(mon);
+
+    let (state, mut manager) = match SimpleRestartingEventManager::launch(mon, &mut shmem_provider)
+    {
+        // The restarting state will spawn the same process again as child, then restarted it each time it crashes.
+        Ok(res) => res,
+        Err(err) => match err {
+            Error::ShuttingDown => {
+                return Ok(());
             }
-    
-            let mut feedback = ();
-    
-            let mut objective = ();
-    
-            let mut state = state.unwrap_or_else(|| {
-                StdState::new(
-                    StdRand::new(),
-                    InMemoryCorpus::new(),
-                    InMemoryCorpus::new(),
-                    &mut feedback,
-                    &mut objective,
-                )
-                .unwrap()
-            });
-    
-            let scheduler = QueueScheduler::new();
-            let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
-            log::info!("Initializing executor!");
-            let mut executor = QemuExecutor::new(
-                emulator,
-                &mut harness,
-                (),
-                &mut fuzzer,
-                &mut state,
-                &mut mgr,
-                options.timeout,
-            )
-            .expect("Failed to create QemuExecutor");
-    
-            if state.must_load_initial_inputs() {
-                state
-                    .load_initial_inputs_by_filenames(&mut fuzzer, &mut executor, &mut mgr, &files)
-                    .unwrap_or_else(|_| {
-                        println!("Failed to load initial corpus at {:?}", &options.input_dir);
-                        process::exit(0);
-                    });
-                log::info!("We imported {} inputs from disk.", state.corpus().count());
+            _ => {
+                panic!("Failed to setup the restarter: {err}");
             }
-    
-            log::info!("Processed {} inputs from disk.", files.len());
-    
-            mgr.send_exiting()?;
-            Err(Error::ShuttingDown)?
+        },
     };
 
-    match Launcher::builder()
-        .shmem_provider(StdShMemProvider::new().expect("Failed to init shared memory"))
-        .broker_port(options.port)
-        .configuration(EventConfig::from_build_id())
-        .monitor(MultiMonitor::new(|s| println!("{s}")))
-        .run_client(&mut run_client)
-        .cores(&options.cores)
-        .build()
-        .launch()
-    {
-        Ok(()) => (),
-        Err(Error::ShuttingDown) => println!("Run finished successfully."),
-        Err(err) => panic!("Failed to run launcher: {err:?}"),
+    let time_observer = TimeObserver::new("time");
+    // Beginning of a page should be properly aligned.
+    #[expect(clippy::cast_ptr_alignment)]
+    let cmplog_map_ptr = cmplog
+        .as_mut_ptr()
+        .cast::<libafl_qemu::modules::cmplog::CmpLogMap>();
+    let cmplog_observer: CmpLogObserver = unsafe { CmpLogObserver::with_map_ptr("cmplog", cmplog_map_ptr, true) };
+
+    // let mut feedback = MaxMapFeedback::new(&edges_observer);
+    // Feedback to rate the interestingness of an input
+    // This one is composed by two Feedbacks in OR
+    let mut feedback = feedback_or!(
+        // New maximization map feedback linked to the edges observer and the feedback state
+        MaxMapFeedback::new(&edges_observer),
+        // Time feedback, this one does not need a feedback state
+        TimeFeedback::new(&time_observer)
+    );
+    let mut objective = CrashFeedback::new();
+
+    let mut state = state.unwrap_or_else(|| { StdState::new(
+            StdRand::new(),
+            InMemoryOnDiskCorpus::new(PathBuf::from("./out/queue")).unwrap(),
+            OnDiskCorpus::new(PathBuf::from("./out/solutions")).unwrap(),
+            &mut feedback,
+            &mut objective).unwrap()
+    });
+
+    let files = corpus_files
+        .iter()
+        .map(|x| x.path())
+        .collect::<Vec<PathBuf>>();
+
+    let scheduler = IndexesLenTimeMinimizerScheduler::new(
+        &edges_observer,
+        PowerQueueScheduler::new(&mut state, &edges_observer, PowerSchedule::fast()),
+    );    
+
+    let i2s = StdMutationalStage::new(HavocScheduledMutator::new(tuple_list!(
+        I2SRandReplace::new()
+    )));
+
+    let mutator =
+        HavocScheduledMutator::with_max_stack_pow(havoc_mutations().merge(tokens_mutations()), 6);
+
+    let power: StdPowerMutationalStage<_, _, BytesInput, _, _, _> =
+        StdPowerMutationalStage::new(mutator);
+    let calibration_feedback = MaxMapFeedback::new(&edges_observer);
+
+    let mut fuzzer = StdFuzzer::new(
+        scheduler,
+        feedback,
+        objective
+    );
+
+    let mut harness = |_emu: &mut Emulator<_, _, _, _, _, _, _>,  input: &BytesInput| {
+        let target = input.target_bytes();
+        let mut buf = target.as_slice();
+        let mut len = buf.len();
+        if len > 4096 {
+            buf = &buf[0..4096];
+            len = 4096;
+        }
+
+        let _qemu = _emu.qemu();
+
+        unsafe {
+
+            _qemu.write_mem(input_addr, buf).expect(&format!("could not set input at {input_addr:?}"));
+
+            _qemu.write_reg(Regs::Pc, test_one_input_ptr).expect(&format!("could not set PC register"));
+            _qemu.write_reg(Regs::Sp, stack_ptr).expect(&format!("could not set SP register"));
+
+            _qemu.write_return_address(ret_addr).expect(&format!("could not set return address"));
+            _qemu.write_function_argument(0, input_addr).expect(&format!("could not set arg 1"));
+            _qemu.write_function_argument(1, len as u64).expect(&format!("could not set arg 2"));
+            match _qemu.run() {
+                Ok(QemuExitReason::Crash) => {
+                    return ExitKind::Crash},
+                Ok(QemuExitReason::Timeout) => {
+                    return ExitKind::Timeout
+                },
+                Ok(QemuExitReason::Breakpoint(_)) => {
+                    return ExitKind::Ok
+                },
+                Ok(QemuExitReason::SyncExit) => {
+                    return ExitKind::Ok
+                },
+                Ok(QemuExitReason::End(QemuShutdownCause::GuestPanic)) => {
+                    return ExitKind::Timeout
+                },
+                Err(QemuExitError::UnexpectedExit) => {
+                    return ExitKind::Crash
+                },
+                Err(err) => panic!("Unexpected QEMU exit: {err:?}"),
+                _ => panic!("Target crashed unexpectedly")
+            }
+            ExitKind::Ok
+        }
+        // let target = input.target_bytes();
+        // let mut buf = target.as_slice();
+        // let mut len = buf.len();
+        // if len > 4096 {
+        //     buf = &buf[0..4096];
+        //     len = 4096;
+        // }
+
+        // unsafe {
+        //     // # Safety
+        //     // The input buffer size is checked above. We use `write_mem_unchecked` for performance reasons
+        //     // For better error handling, use `write_mem` and handle the returned Result
+        //     log::info!("input is: {:?}", buf);
+        //     qemu.write_mem_unchecked(input_addr, buf);
+
+        //     qemu.write_reg(Regs::Rdi, input_addr).unwrap();
+        //     qemu.write_reg(Regs::Rsi, len as GuestReg).unwrap();
+        //     qemu.write_reg(Regs::Rip, test_one_input_ptr).unwrap();
+        //     qemu.write_reg(Regs::Rsp, stack_ptr).unwrap();
+
+        //     match qemu.run() {
+        //         Ok(QemuExitReason::Breakpoint(_)) => ExitKind::Ok,
+        //         Ok(QemuExitReason::End(QemuShutdownCause::HostSignal(signal))) => {
+        //             signal.handle();
+        //             panic!("Unexpected signal: {signal:?}");
+        //         }
+        //         Err(QemuExitError::UnexpectedExit) => ExitKind::Crash,
+        //         _ => {
+        //             panic!("Unexpected QEMU exit.")
+        //         }
+        //     }
+        // }
+        // ExitKind::Ok
+
+    };
+
+    let executor = QemuForkExecutor::new(
+        emulator,
+        &mut harness,
+        tuple_list!(edges_observer, time_observer),
+        &mut fuzzer,
+        &mut state,
+        &mut manager,
+        shmem_provider,
+        Duration::from_millis(5000))
+    .expect("Failed to create QemuExecutor");
+
+    let mut executor = ShadowExecutor::new(executor, tuple_list!(cmplog_observer));
+
+    if state.must_load_initial_inputs() {
+        state
+            .load_initial_inputs(&mut fuzzer, &mut executor, &mut manager, &in_dir.clone())
+            .unwrap_or_else(|err| {
+                log::info!("Failed to load initial corpus: error: {:?}", err);
+                process::exit(0);
+            });
+        log::info!("We imported {} inputs from disk.", state.corpus().count());
     }
-    // // If not restarting, create a State from scratch
-    // let mut state = match  {
-    //     Some(x) => x,
-    //     None => {
-    //         StdState::new(
-    //             // RNG
-    //             StdRand::new(),
-    //             // Corpus that will be evolved, we keep it in memory for performance
-    //             InMemoryOnDiskCorpus::no_meta(
-    //                 self.options.queue_dir(self.client_description.clone()),
-    //             )?,
-    //             // Corpus in which we store solutions (crashes in this example),
-    //             // on disk so the user can get them after stopping the fuzzer
-    //             OnDiskCorpus::new(self.options.crashes_dir(self.client_description.clone()))?,
-    //             // States of the feedbacks.
-    //             // The feedbacks can report the data that should persist in the State.
-    //             &mut feedback,
-    //             // Same for objective feedbacks
-    //             &mut objective,
-    //         )?
-    //     }
-    // };
-    // let stats_stage = IfStage::new(
-    //     |_, _, _, _| Ok(self.options.tui),
-    //     tuple_list!(AflStatsStage::builder()
-    //         .map_observer(&edges_observer)
-    //         .build()?),
-    // );
-    // let stats_stage_cmplog = IfStage::new(
-    //     |_, _, _, _| Ok(self.options.tui),
-    //     tuple_list!(AflStatsStage::builder()
-    //         .map_observer(&edges_observer)
-    //         .build()?),
-    // );
 
-    // // The stats reporter for the broker
-    // let monitor = MultiMonitor::new(|s| println!("{s}"));
+    let tracing = ShadowTracingStage::new();
 
-    // // let monitor = SimpleMonitor::new(|s| println!("{s}"));
-    // // let mut mgr = SimpleEventManager::new(monitor);
-    // // run_client(None, mgr, 0);
+    let mut stages = tuple_list!(
+        CalibrationStage::new(&calibration_feedback), tracing, i2s, power);
 
-    // // Build and run a Launcher
-    // match Launcher::builder()
-    //     .shmem_provider(shmem_provider)
-    //     .broker_port(broker_port)
-    //     .configuration(EventConfig::from_build_id())
-    //     .monitor(monitor)
-    //     .run_client(&mut run_client)
-    //     .cores(&cores)
-    //     // .stdout_file(Some("/dev/null"))
-    //     .build()
-    //     .launch()
-    // {
-    //     Ok(()) => (),
-    //     Err(Error::ShuttingDown) => println!("Fuzzing stopped by user. Good bye."),
-    //     Err(err) => panic!("Failed to run launcher: {err:?}"),
-    // }
-    // println!("fuzzer working");
+    log::info!("Processed {} inputs from disk.", files.len());
+    fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut manager).expect("error in the fuzzing loop");
+    Ok(())
 }

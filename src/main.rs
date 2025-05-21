@@ -1,6 +1,6 @@
 
-mod simple_fuzzer;
+mod fuzzer;
 
 fn main() {
-    let _ = simple_fuzzer::fuzz();
+    let _ = fuzzer::fuzz();
 }
