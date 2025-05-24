@@ -5,3 +5,4 @@ Cargo.lock
 libafl.log
 out
 harness
+**/testdata/fuzz/

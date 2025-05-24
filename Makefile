@@ -3,7 +3,7 @@
 build_harness:
 	go build -C go_lib -o bin/libtlib.so -buildmode=c-shared main.go
 	cc -g ./harness.c -o harness/harness -L./go_lib/bin -ltlib \
-    -Wl,-rpath='./go_lib/bin' && chmod +x harness/harness && ./harness/harness
+    -Wl,-rpath='./go_lib/bin' && chmod +x harness/harness
 
 build_fuzzer:
 	cargo build	\
