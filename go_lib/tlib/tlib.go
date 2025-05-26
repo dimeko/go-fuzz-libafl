@@ -49,7 +49,7 @@ func Hello(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if _req.Field1 == "__!!__!!__" {
+	if _req.Field1 == "stiaaarng" {
 		panic("fuzzed")
 	}
 

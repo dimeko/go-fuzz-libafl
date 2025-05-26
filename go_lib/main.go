@@ -29,14 +29,20 @@ func StringContainsAt(n string) int {
 }
 
 //export ServerHello
-func ServerHello(_b []byte) {
+func ServerHello(_b []byte) int8 {
 	if string(_b) == "<skip>" {
-		return
+		return 0
+	}
+
+	if string(_b) == "<asd>" {
+		return 1
 	}
 	_reader := bytes.NewBuffer(_b)
 	_req := httptest.NewRequest(http.MethodGet, "/", _reader)
-	_rec := httptest.NewRecorder()
-	tlib.Hello(_rec, _req)
+	_res := httptest.NewRecorder()
+	tlib.Hello(_res, _req)
+
+	return 0
 }
 
 func main() {}

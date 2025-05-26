@@ -12,21 +12,32 @@
 //     printf("res: %d\n", res);
 // }
 
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+int LLVMFuzzerTestOneInput(uint8_t *data, size_t size) {
   if(size == -1) {
     return 0;
+  }
+
+  if(data[0] == 'F') {
+    if(data[1] == 'U') {
+      if(data[2] == 'Z') {
+        if(data[3] == 'Z') {
+          if(data[4] == 'Z') {
+            abort();
+          }
+        }
+      }
+    }
   }
   // _GoString_ gstring = { data, size };
 
   // int idx = StringContainsAt(gstring);
   GoSlice _goBuff = {data, size, 5000};
-  ServerHello(_goBuff);
-
+  GoInt8 res = ServerHello(_goBuff);
   // if(idx != -1) {
   //   abort();
 
   // } else {
-    return 0;
+    return (int)res;
   // }
 }
 
