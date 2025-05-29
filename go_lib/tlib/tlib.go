@@ -4,25 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
-func Add(n1, n2 int16) int16 {
-	return n1 + n2
-}
+// func Add(n1, n2 int16) int16 {
+// 	return n1 + n2
+// }
 
-func Concat(n1, n2 string) string {
-	return n1 + n2
-}
+// func Concat(n1, n2 string) string {
+// 	return n1 + n2
+// }
 
-func StringContainsAt(n string) int {
-	res := strings.Index(n, "1_1_")
-	// fmt.Println("res: ", res)
-	// if res != -1 {
-	// 	panic("sdkjh")
-	// }
-	return res
-}
+// func StringContainsAt(n string) int {
+// 	res := strings.Index(n, "1_1_")
+// 	// fmt.Println("res: ", res)
+// 	// if res != -1 {
+// 	// 	panic("sdkjh")
+// 	// }
+// 	return res
+// }
 
 type TestInput1 struct {
 	Field1 string `json:"field_1"`
@@ -31,10 +30,6 @@ type TestInput1 struct {
 		Nest2 string `json:"nest_2"`
 	} `json:"field_2"`
 	Field3 []string `json:"field_3"`
-}
-
-type TestInput2 struct {
-	F []string `json:"f"`
 }
 
 func Hello(w http.ResponseWriter, req *http.Request) {
@@ -49,7 +44,7 @@ func Hello(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if _req.Field1 == "stiaaarng" {
+	if _req.Field1 == "will_you_find_me" {
 		panic("fuzzed")
 	}
 

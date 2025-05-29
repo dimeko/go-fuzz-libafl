@@ -17,17 +17,17 @@ int LLVMFuzzerTestOneInput(uint8_t *data, size_t size) {
     return 0;
   }
 
-  if(data[0] == 'F') {
-    if(data[1] == 'U') {
-      if(data[2] == 'Z') {
-        if(data[3] == 'Z') {
-          if(data[4] == 'Z') {
-            abort();
-          }
-        }
-      }
-    }
-  }
+  // if(data[0] == 'F') {
+  //   if(data[1] == 'U') {
+  //     if(data[2] == 'Z') {
+  //       if(data[3] == 'Z') {
+  //         if(data[4] == 'Z') {
+  //           abort();
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
   // _GoString_ gstring = { data, size };
 
   // int idx = StringContainsAt(gstring);
