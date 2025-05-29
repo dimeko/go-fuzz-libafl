@@ -1,8 +1,9 @@
 target
 .vscode
-go_lib/bin
+go_app/bin
 Cargo.lock
 libafl.log
 out
 harness
 **/testdata/fuzz/
+personal_notes.md

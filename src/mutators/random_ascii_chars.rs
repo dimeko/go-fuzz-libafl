@@ -1,11 +1,11 @@
-use std::{borrow::Cow, num::{NonZero, NonZeroUsize}};
+use std::{borrow::Cow, num::{NonZeroUsize}};
 use jvob::{JValueMap, json_values_byte_offsets};
 
-use libafl::{inputs::{HasMutatorBytes, ResizableMutator}, mutators::{MutationResult, Mutator}, observers::{CmpValues, CmpValuesMetadata}, state::{HasMaxSize, HasRand}, HasMetadata};
+use libafl::{inputs::{HasMutatorBytes, ResizableMutator}, mutators::{MutationResult, Mutator}, state::{HasMaxSize, HasRand}, HasMetadata};
 use libafl::{
     Error
 };
-use libafl_bolts::{rands::Rand, AsSlice, Named};
+use libafl_bolts::{rands::Rand, Named};
 pub struct RandomAsciiCharsMutator;
 const ALLOWED_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()-_=+[{]};:,<.>/?<";
 

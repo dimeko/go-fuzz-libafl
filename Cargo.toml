@@ -1,5 +1,5 @@
 [package]
-name = "go_lib"
+name = "go_libafl_fuzz"
 edition = "2024"
 
 [features]

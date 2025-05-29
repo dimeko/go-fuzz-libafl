@@ -1,12 +1,10 @@
 use std::{borrow::Cow, num::{NonZero, NonZeroUsize}};
-use clap::{Parser};
-// use std::{env, fmt::Write, fs::DirEntry, io, path::PathBuf, process};
-// use core::time::Duration;
-// use std::{env, path::PathBuf, process};
 
-use libafl::{inputs::{HasMutatorBytes, ResizableMutator}, mutators::{MutationResult, Mutator}, observers::{CmpValues, CmpValuesMetadata}};
-// use libafl::state::HasExecutions;
-// #[allow(unused_imports)]
+use libafl::{
+    inputs::{HasMutatorBytes, ResizableMutator},
+    mutators::{MutationResult, Mutator},
+    observers::{CmpValues, CmpValuesMetadata}};
+
 use libafl::{
     Error, HasMetadata,
     state::{ HasMaxSize, HasRand},
@@ -56,8 +54,6 @@ I: ResizableMutator<u8> + HasMutatorBytes,
         let _spans: Vec<JValueMap> = match json_values_byte_offsets(input_bytes.to_vec()) {
             Ok(s) => s,
             Err(_) => {
-                // println!("skipped 4!");
-                // vec![JValueMap::new((0, size.into()), String::new(), jvob::JType::JString)]
                 return Ok(MutationResult::Skipped);
             }
         };
@@ -70,9 +66,11 @@ I: ResizableMutator<u8> + HasMutatorBytes,
         };
 
         let idx = state.rand_mut().below(cmps_len);
-        let span_idx = state.rand_mut().below(NonZeroUsize::new(_spans.len()).unwrap());
+        let span_idx = state.rand_mut().below(
+            NonZeroUsize::new(_spans.len()).unwrap());
 
-        let off = state.rand_mut().between(_spans[span_idx].region().0, _spans[span_idx].region().1);    // below(size);
+        let off = state.rand_mut().between(
+            _spans[span_idx].region().0, _spans[span_idx].region().1);    // below(size);
 
         let len = _spans[span_idx].region().1;
         let bytes = input.mutator_bytes_mut();
@@ -197,7 +195,9 @@ I: ResizableMutator<u8> + HasMutatorBytes,
                     while size != 0 {
                         if v.0.as_slice()[0..size] == input.mutator_bytes()[i..i + size] {
                             unsafe {
-                                buffer_copy(input.mutator_bytes_mut(), v.1.as_slice(), 0, i, size);
+                                buffer_copy(
+                                    input.mutator_bytes_mut(),
+                                    v.1.as_slice(), 0, i, size);
                             }
                             result = MutationResult::Mutated;
                             break 'outer;
@@ -208,7 +208,9 @@ I: ResizableMutator<u8> + HasMutatorBytes,
                     while size != 0 {
                         if v.1.as_slice()[0..size] == input.mutator_bytes()[i..i + size] {
                             unsafe {
-                                buffer_copy(input.mutator_bytes_mut(), v.0.as_slice(), 0, i, size);
+                                buffer_copy(
+                                    input.mutator_bytes_mut(),
+                                    v.0.as_slice(), 0, i, size);
                             }
                             result = MutationResult::Mutated;
                             break 'outer;
@@ -219,23 +221,6 @@ I: ResizableMutator<u8> + HasMutatorBytes,
             }
         }
         Ok(result)
-        // let cmp_values = &meta.list[idx];
-        // let des_meta = serde_json::to_string(&meta).unwrap();
-        // for cmp_v in cmp_values. {
-            // println!("meta.list.len(): {:?}", meta.list.len());
-        // }
-
-        // TODO: do not use from_ne_bytes, it's for host not for target!! we should use a from_target_ne_bytes....
-        // println!("value: {:?}", _spans[span_idx].value);
-        // print!("off {:?}, len: {:?}, bytes_len: {:?}\n", off, len, bytes.len()); 
-
-        // for byte in bytes.iter_mut().skip(off).take(len) {
-        //     // print!("from {:?}", *byte as char); 
-        //     *byte = state.rand_mut().below(NonZeroUsize::new(127).unwrap()) as u8;
-        //     // print!(" to {:?}\n", *byte as char); 
-        // }
-        // Ok(MutationResult::Mutated)
-
     }
 
     fn post_exec(&mut self, _state: &mut S, _new_corpus_id: Option<libafl::corpus::CorpusId>) -> Result<(), Error> {

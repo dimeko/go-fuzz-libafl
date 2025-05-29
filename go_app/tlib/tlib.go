@@ -34,8 +34,6 @@ type TestInput1 struct {
 
 func Hello(w http.ResponseWriter, req *http.Request) {
 	var _req TestInput1
-	// body2, _ := ioutil.ReadAll(req.Body)
-	// fmt.Printf("bytes: %b", body2)
 
 	_dec := json.NewDecoder(req.Body)
 	err := _dec.Decode(&_req)
@@ -44,7 +42,7 @@ func Hello(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if _req.Field1 == "will_you_find_me" {
+	if _req.Field1 == "fuzz_me_if_you_can" {
 		panic("fuzzed")
 	}
 

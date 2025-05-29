@@ -1,28 +1,22 @@
-### Fuzz go library
+### Fuzz Go with [LibAFL](https://github.com/AFLplusplus/LibAFL)
 
-Build harness statically :
+This is a project to get you started with fuzzing Go server controllers. The fuzzing test setup is very similar to how fuzz tests work in Go. Create a request with `httptest`, run the controller and record its response. 
+There the `harness.c` which is ran by the fuzzer and `main.go` which works as a "sub harness" to help us prepare the environment for Go related stuff (like taking the incoming bytes and placing them all in a single struct field).
+At the moment, we prefer to run black-box fuzzing and build the target without instrumentation. It would be difficult though, since I do not know any way to build instrumentation in a Go binary.
+We run it with Qemu in order to give us CmpLog.
+
+Build and run :
 ```bash
-clang-18 -o harness harness.c target/bin/tlib.so && chmod +x harness && ./harness 
+make run
 ```
 
-or build with extern symbols
-```bash
-# first remove the #include "tlib.h" and add extern int Add(int n1, int n2) __attribute__((weak));
-clang-18 -o harness -c  harness.c
-clang-18 harness -o main -Wl,--unresolved-symbols=ignore-in-shared-libs
-LD_PRELOAD=./target/bin/tlib.so  ./main
-```
+Notes: 
+- In order to run the fuzzer, you have to download [jvob](https://github.com/dimeko/jvob) a small tool to find the json values byte offsets in a json byte vector.
+- Sometimes it fails with "No entries in corpus". Simply re-run it
 
-NOTES:
-- See that here we compile statically, a single binary is a generated.
-- Compiling the harness with `clang` did not work. When I switched to `cc` it worked. WTF!
-
-Benchmarks:
-- CalibrationStage::new(&calibration_feedback), tracing, i2s, power); first solution for "\_!_!" found after  2m-56s and executions: 15864
-- CalibrationStage::new(&calibration_feedback)); first solution for "\_!_!" found after (approx) 2m 6s and executions: 12800
-- CalibrationStage::new(&calibration_feedback)); and without CmpLogChildModule qemu modules solution for "\_!_!" not found after 6 minutes
-
-- With json mutator:
-    - [UserStats #0] run time: 27m-36s, clients: 1, corpus: 214, objectives: 0, executions: 66412, exec/sec: 40.09, stability: 2360/2360 (100%), edges: 2876/65536 (4%)
-    - [Testcase #0] run time: 27m-36s, clients: 1, corpus: 215, objectives: 0, executions: 66412, exec/sec: 40.09, stability: 2360/2360 (100%), edges: 2876/65536 (4%)
-    - [Client Heartbeat #0] run time: 27m-52s, clients: 1, corpus: 215, objectives: 0, executions: 67057, exec/sec: 40.10, stability: 2360/2360 (100%), edges: 2876/65536 (4%)
+TODO:
+- Improve CmpLog utilization
+- Create a wordlist mutator (token mutator)
+- Add json values offsets in metadata
+- Fix fails on first runs with error "No entries in corpus"
+- Improve performance
