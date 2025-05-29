@@ -57,10 +57,13 @@ I: ResizableMutator<u8> + HasMutatorBytes,
                 return Ok(MutationResult::Skipped);
             }
         };
-
         let Some(meta) = state.metadata_map().get::<CmpValuesMetadata>() else {
+            // println!("meta skipped: {:?}", meta);
+
             return Ok(MutationResult::Skipped);
         };
+        // println!("meta continue: {:?}", meta);
+
         let Some(cmps_len) = NonZero::new(meta.list.len()) else {
             return Ok(MutationResult::Skipped);
         };

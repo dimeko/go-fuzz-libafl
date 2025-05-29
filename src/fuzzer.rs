@@ -1,7 +1,8 @@
 use core::time::Duration;
-use std::{env, fs, io::{Read}, path::{PathBuf}, ptr::NonNull};
+use std::{env, fs, io::Read, path::PathBuf, ptr::NonNull, ops::Range};
 use clap::{Parser};
 use env_logger::Builder;
+use cargo_binutils::Tool;
 
 use libafl::{
     corpus::{InMemoryOnDiskCorpus, OnDiskCorpus},
@@ -41,7 +42,7 @@ use libafl::{
     state::{StdState},
 };
 
-use libafl_bolts::{AsSliceMut};
+use libafl_bolts::{tuples::MatchFirstType, AsSliceMut};
 // #[allow(unused_imports)]
 use libafl_bolts::{
     shmem::{ShMemProvider, StdShMemProvider},
@@ -52,7 +53,7 @@ use libafl_bolts::{
 use libafl_qemu::{
     elf::EasyElf, modules::{
     cmplog::{CmpLogChildModule, CmpLogObserver},
-    edges::StdEdgeCoverageChildModule},
+    edges::StdEdgeCoverageChildModule, utils::filters::{HasAddressFilter, StdAddressFilter}},
     ArchExtras,
     Emulator,
     GuestAddr,
@@ -67,7 +68,7 @@ use libafl_qemu::{
 use libafl_targets::{CMPLOG_MAP_PTR, EDGES_MAP_DEFAULT_SIZE};
 use libafl_targets::{CmpLogMap};
 
-use crate::mutators::JsonMutator;
+use crate::mutators::{JsonMutator, RandomResizeMutator};
 // use crate::mutators::RandomResizeMutator;
 use crate::mutators::RandomAsciiCharsMutator;
 
@@ -79,6 +80,9 @@ pub struct Version;
 pub struct FuzzerArgs {
     #[clap(short, long, help = "Enable output from the fuzzer clients")]
     verbose: bool,
+
+    #[clap[short, long, help = "Set fuzz symbol ending offset"]]
+    offset: u64,
 
     #[arg(last = true, help = "Arguments passed to the target")]
     args: Vec<String>,
@@ -150,7 +154,7 @@ pub fn fuzz() -> Result<(), Error> {
     );
 
     // Initialize the emulator
-    let emulator = Emulator::empty()
+    let mut emulator = Emulator::empty()
         .qemu_parameters(cli_args.args)
         .modules(emulator_modules)
         .build()
@@ -167,9 +171,8 @@ pub fn fuzz() -> Result<(), Error> {
         .resolve_symbol("LLVMFuzzerTestOneInput", qemu.load_addr())
         .expect("Symbol LLVMFuzzerTestOneInput not found");
     log::info!("LLVMFuzzerTestOneInput @ {test_one_input_ptr:#x}");
-
     qemu.entry_break(test_one_input_ptr);
-    log::info!("Break at {:#x}", qemu.read_reg(Regs::Pc).unwrap());
+    // log::info!("Break at {:#x}", qemu.read_reg(Regs::Pc).unwrap());
 
     let stack_ptr: u64 = qemu.read_reg(Regs::Sp).unwrap();
     let ret_addr: GuestAddr = qemu.read_return_address().unwrap();
@@ -178,8 +181,26 @@ pub fn fuzz() -> Result<(), Error> {
     log::info!("Stack pointer = {stack_ptr:#x}");
     log::info!("Return address = {ret_addr:#x}");
 
+    let mut elf_so_buffer = Vec::new();
+    let elf_so = EasyElf::from_file("./go_app/bin/libtlib.so", &mut elf_so_buffer)?;
+
+    let controller_under_test = elf_so
+        .resolve_symbol("go_target/tlib.FuzzMeController", qemu.load_addr())
+        .expect("Symbol FuzzMeController not found");
+    log::info!("FuzzMeController @ {controller_under_test:#x}");
+
     // 2. breakpoint 
     qemu.set_breakpoint(ret_addr);
+    
+    let controller_under_test_address_range: Range<GuestAddr> = Range {
+        start: controller_under_test,
+        end: controller_under_test + cli_args.offset, // found the region of the controller function with objdump
+    };
+    
+    emulator.modules_mut()
+        .modules_mut()
+        .match_first_type_mut::<CmpLogChildModule>()
+        .expect("Could not find back the edge module").update_address_filter(qemu, StdAddressFilter::deny_list(vec![controller_under_test_address_range]));
 
     // List mappings in order to make sure the go shared library has been loaded into Qemu memory
     let mappings = QemuMappingsViewer::new(&qemu);
@@ -244,9 +265,9 @@ pub fn fuzz() -> Result<(), Error> {
         JsonMutator::new()
     )));
 
-    // let random_mut = StdMutationalStage::new(RandomResizeMutator::new());
+    let random_resize_mut = StdMutationalStage::new(RandomResizeMutator::new());
     // Input mutator 2
-    let random_ascii_mut = StdMutationalStage::new(RandomAsciiCharsMutator::new());
+    // let random_ascii_mut = StdMutationalStage::new(RandomAsciiCharsMutator::new());
 
     let tracing = ShadowTracingStage::new();
 
@@ -321,7 +342,7 @@ pub fn fuzz() -> Result<(), Error> {
             .unwrap();
     }
 
-    let mut stages = tuple_list!(calibration, tracing, json_mut, random_ascii_mut);
+    let mut stages = tuple_list!(calibration, tracing, json_mut, random_resize_mut);
     fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut manager).expect("error in the fuzzing loop");
     Ok(())
 }

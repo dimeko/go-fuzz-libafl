@@ -6,23 +6,6 @@ import (
 	"net/http"
 )
 
-// func Add(n1, n2 int16) int16 {
-// 	return n1 + n2
-// }
-
-// func Concat(n1, n2 string) string {
-// 	return n1 + n2
-// }
-
-// func StringContainsAt(n string) int {
-// 	res := strings.Index(n, "1_1_")
-// 	// fmt.Println("res: ", res)
-// 	// if res != -1 {
-// 	// 	panic("sdkjh")
-// 	// }
-// 	return res
-// }
-
 type TestInput1 struct {
 	Field1 string `json:"field_1"`
 	Field2 struct {
@@ -32,7 +15,7 @@ type TestInput1 struct {
 	Field3 []string `json:"field_3"`
 }
 
-func Hello(w http.ResponseWriter, req *http.Request) {
+func FuzzMeController(w http.ResponseWriter, req *http.Request) {
 	var _req TestInput1
 
 	_dec := json.NewDecoder(req.Body)
@@ -46,13 +29,5 @@ func Hello(w http.ResponseWriter, req *http.Request) {
 		panic("fuzzed")
 	}
 
-	fmt.Fprintf(w, "Person: %+v", _req)
-}
-
-func Headers(w http.ResponseWriter, req *http.Request) {
-	for name, headers := range req.Header {
-		for _, h := range headers {
-			fmt.Fprintf(w, "%v: %v\n", name, h)
-		}
-	}
+	fmt.Fprintf(w, "Hello: %+v", _req)
 }

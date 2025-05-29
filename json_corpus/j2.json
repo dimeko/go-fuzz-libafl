@@ -1,13 +1,13 @@
 {
-    "field_1": "stirng",
+    "field_1": "string",
     "field_2": {
-        "nest_1": "nest",
-        "nest_2": "nesdfsdt"
+        "nest_1": "nest1",
+        "nest_2": "nest2"
     },
     "field_3": [
-        "lsfas1",
-        "lsda2",
-        "l3asda",
-        "l4sda"
+        "list1",
+        "list2",
+        "list3",
+        "list4"
     ]
 }

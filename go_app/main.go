@@ -37,7 +37,7 @@ func ServerHello(_b []byte) int8 {
 	_reader := bytes.NewBuffer(_b)
 	_req := httptest.NewRequest(http.MethodGet, "/", _reader)
 	_res := httptest.NewRecorder()
-	tlib.Hello(_res, _req)
+	tlib.FuzzMeController(_res, _req)
 
 	return 0
 }

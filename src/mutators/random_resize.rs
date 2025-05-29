@@ -8,14 +8,14 @@ use libafl::{
 use libafl_bolts::{rands::Rand, Named};
 pub struct RandomResizeMutator;
 
-const ALLOWED_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()-_=+[{]};:,<.>/?<";
+const ALLOWED_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()-_=+[{]};:,<.>/?";
 
-// impl RandomResizeMutator {
-//     #[must_use]
-//     pub fn new() -> Self {
-//         Self
-//     }
-// }
+impl RandomResizeMutator {
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 impl Named for RandomResizeMutator {
     fn name(&self) -> &Cow<'static, str> {
@@ -40,16 +40,15 @@ I: ResizableMutator<u8> + HasMutatorBytes,
 
         let new_bytes: Vec<u8> = {
             let num_of_bytes = state.rand_mut().below(
-                NonZeroUsize::new(30).unwrap());
-
-            let mut random_bytes = Vec::<u8>::new();
+                NonZeroUsize::new(3).unwrap());
+            
+            let random_byte = ALLOWED_CHARS.as_bytes()[
+                state.rand_mut().below(NonZeroUsize::new(
+                    ALLOWED_CHARS.len()).unwrap())
+            ];
+            let mut random_bytes = vec![];
             for _ in 0..num_of_bytes {
-                random_bytes.push(
-                    ALLOWED_CHARS.as_bytes()[
-                        state.rand_mut().below(NonZeroUsize::new(
-                            ALLOWED_CHARS.len()).unwrap())
-                    ]
-                );
+                random_bytes.push(random_byte);
             }
             random_bytes
         };
@@ -57,8 +56,12 @@ I: ResizableMutator<u8> + HasMutatorBytes,
             NonZeroUsize::new(_spans.len()).unwrap());
         let _start_off = state.rand_mut().between(
                 _spans[span_to_resize].region().0,
-                _spans[span_to_resize].region().1-1);
-        input.splice(_start_off.._start_off, new_bytes.iter().copied());
+                _spans[span_to_resize].region().1);
+
+        let _end_off = state.rand_mut().between(
+            _start_off,
+            _spans[span_to_resize].region().1);
+        input.splice(_start_off.._end_off, new_bytes.iter().copied());
         
         Ok(MutationResult::Mutated)
    }
