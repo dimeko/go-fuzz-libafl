@@ -15,7 +15,7 @@ build_fuzzer:
 		--target-dir ./target
 
 run: build_harness build_fuzzer
-	$(TARGET) --verbose --offset 2000 -- harness/harness
+	$(TARGET) --verbose --offset 600 -- harness/harness
 
 clean:
 	$(CARGO) clean

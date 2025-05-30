@@ -200,7 +200,7 @@ pub fn fuzz() -> Result<(), Error> {
     emulator.modules_mut()
         .modules_mut()
         .match_first_type_mut::<CmpLogChildModule>()
-        .expect("Could not find back the edge module").update_address_filter(qemu, StdAddressFilter::deny_list(vec![controller_under_test_address_range]));
+        .expect("Could not find back the edge module").update_address_filter(qemu, StdAddressFilter::allow_list(vec![controller_under_test_address_range]));
 
     // List mappings in order to make sure the go shared library has been loaded into Qemu memory
     let mappings = QemuMappingsViewer::new(&qemu);
@@ -265,8 +265,8 @@ pub fn fuzz() -> Result<(), Error> {
         JsonMutator::new()
     )));
 
-    let random_resize_mut = StdMutationalStage::new(RandomResizeMutator::new());
     // Input mutator 2
+    let random_resize_mut = StdMutationalStage::new(RandomResizeMutator::new());
     // let random_ascii_mut = StdMutationalStage::new(RandomAsciiCharsMutator::new());
 
     let tracing = ShadowTracingStage::new();

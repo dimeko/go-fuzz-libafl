@@ -103,6 +103,8 @@ I: ResizableMutator<u8> + HasMutatorBytes,
                         result = MutationResult::Mutated;
                         break;
                     }
+                    // here, we need an else to skip the mutation imidiatelly and only
+                    // if it is skipped move to the next mutation and resize the input
                 }
             }
             CmpValues::U16((v1, v2, v1_is_const)) => {

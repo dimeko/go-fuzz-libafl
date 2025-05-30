@@ -13,6 +13,7 @@ make run
 Notes: 
 - In order to run the fuzzer, you have to download [jvob](https://github.com/dimeko/jvob) a small tool to find the json values byte offsets in a json byte vector.
 - Sometimes it fails with "No entries in corpus". Simply re-run it
+- In `Makefile`, the fuzzer is called with `--offset 600`. 600 is the length of the `FuzzMeController` controller in the the Go library. TODO: find it automatically before start fuzzing.
 
 TODO:
 - Improve CmpLog utilization

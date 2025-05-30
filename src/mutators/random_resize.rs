@@ -38,9 +38,19 @@ I: ResizableMutator<u8> + HasMutatorBytes,
             }
         };
 
+
+        let span_to_resize = state.rand_mut().below(
+            NonZeroUsize::new(_spans.len()).unwrap());
+        let _start_off = state.rand_mut().between(
+                _spans[span_to_resize].region().0,
+                _spans[span_to_resize].region().1);
+
+        let _end_off = state.rand_mut().between(
+            _start_off,
+            _spans[span_to_resize].region().1);
         let new_bytes: Vec<u8> = {
             let num_of_bytes = state.rand_mut().below(
-                NonZeroUsize::new(3).unwrap());
+                NonZeroUsize::new(_spans[span_to_resize].region().1 - _start_off + 1).unwrap());
             
             let random_byte = ALLOWED_CHARS.as_bytes()[
                 state.rand_mut().below(NonZeroUsize::new(
@@ -52,15 +62,6 @@ I: ResizableMutator<u8> + HasMutatorBytes,
             }
             random_bytes
         };
-        let span_to_resize = state.rand_mut().below(
-            NonZeroUsize::new(_spans.len()).unwrap());
-        let _start_off = state.rand_mut().between(
-                _spans[span_to_resize].region().0,
-                _spans[span_to_resize].region().1);
-
-        let _end_off = state.rand_mut().between(
-            _start_off,
-            _spans[span_to_resize].region().1);
         input.splice(_start_off.._end_off, new_bytes.iter().copied());
         
         Ok(MutationResult::Mutated)
