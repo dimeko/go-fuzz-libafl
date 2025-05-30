@@ -10,24 +10,6 @@ import (
 	"net/http/httptest"
 )
 
-// //export Add
-// func Add(n1, n2 int16) int16 {
-// 	return tlib.Add(n1, n2)
-// }
-
-// //export Concat
-// func Concat(n1, n2 string) string {
-// 	return tlib.Concat(n1, n2)
-// }
-
-// //export StringContainsAt
-// func StringContainsAt(n string) int {
-// 	if n == "urhfduijg@" {
-// 		panic("fuzzed")
-// 	}
-// 	return tlib.StringContainsAt(n)
-// }
-
 //export ServerHello
 func ServerHello(_b []byte) int8 {
 	if string(_b) == "<skip>" {
