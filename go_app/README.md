@@ -1,10 +1,5 @@
 ## Run the target
 
-Run Go file with arguments
-```
-GO111MODULE=on go run main.go -n1=56 -n2=8723
-```
-
 Compile to dynamic library (`.so`):
 ```
 go build -o bin/tlib.so -buildmode=c-shared main.go
